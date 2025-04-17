@@ -146,7 +146,8 @@ impl TaskManager {
             }
             // go back to user mode
         } else {
-            panic!("All applications completed!");
+            return;
+            // panic!("All applications completed!");
         }
     }
 }
