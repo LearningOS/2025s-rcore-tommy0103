@@ -14,7 +14,7 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
-use crate::config::MAX_APP_NUM;
+use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
 use lazy_static::*;
@@ -54,6 +54,7 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            task_syscall_count: [0; MAX_SYSCALL_NUM + 1],
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -102,6 +103,19 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
         inner.tasks[current].task_status = TaskStatus::Exited;
+    }
+
+    /// Count syscall by id
+    fn count_current_syscall(&self, id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].task_syscall_count[id] += 1;
+    }
+    /// Get syscall count by id
+    fn get_current_syscall(&self, id: usize) -> isize {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].task_syscall_count[id]
     }
 
     /// Find next task to run and return task id.
@@ -156,6 +170,15 @@ fn mark_current_suspended() {
 /// Change the status of current `Running` task into `Exited`.
 fn mark_current_exited() {
     TASK_MANAGER.mark_current_exited();
+}
+
+/// get syscall count by id
+pub fn get_current_syscall(id: usize) -> isize {
+    TASK_MANAGER.get_current_syscall(id)
+}
+/// Count syscall by id
+pub fn count_current_syscall(id: usize) {
+    TASK_MANAGER.count_current_syscall(id);
 }
 
 /// Suspend the current 'Running' task and run the next task in task list.
