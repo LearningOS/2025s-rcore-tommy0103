@@ -18,6 +18,7 @@ mod id;
 mod manager;
 mod processor;
 mod switch;
+mod priority;
 #[allow(clippy::module_inception)]
 mod task;
 
@@ -27,6 +28,7 @@ use lazy_static::*;
 pub use manager::{fetch_task, TaskManager};
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
+use priority::TaskPriority;
 
 pub use context::TaskContext;
 pub use id::{kstack_alloc, pid_alloc, KernelStack, PidHandle};

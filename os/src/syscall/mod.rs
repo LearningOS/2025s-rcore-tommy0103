@@ -40,9 +40,11 @@ const SYSCALL_SPAWN: usize = 400;
 
 mod fs;
 mod process;
+mod mm_utils;
 
 use fs::*;
 use process::*;
+
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
     match syscall_id {

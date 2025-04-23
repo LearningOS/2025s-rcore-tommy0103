@@ -6,9 +6,15 @@ use crate::{
     mm::{translated_refmut, translated_str},
     task::{
         add_task, current_task, current_user_token, exit_current_and_run_next,
-        suspend_current_and_run_next,
+        suspend_current_and_run_next, TaskControlBlock,
     },
 };
+// =======
+// use riscv::paging::PTE;
+
+use crate::{mm::{translated_byte_buffer, MapPermission, VirtAddr}, timer::get_time_us};
+use super::mm_utils::modify_timeval;
+// >>>>>>> 52c4b62 (reimplemented(sys_trace & sys_get_time) + build(mmap & munmap))
 
 #[repr(C)]
 #[derive(Debug)]
@@ -106,29 +112,53 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    trace!("kernel: sys_get_time");
+    // -1
+    // get_time_ms()
+    let token = current_user_token();
+    let mut byte_buffer = translated_byte_buffer(token, _ts as *const u8, core::mem::size_of::<TimeVal>());
+    let usec = get_time_us();
+    let timeval: TimeVal = TimeVal { sec: usec / 1_000_000 , usec };
+    modify_timeval(&mut byte_buffer, timeval);
+    0
 }
 
-/// YOUR JOB: Implement mmap.
+// YOUR JOB: Implement mmap.
 pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    trace!("kernel: sys_mmap");
+    if (_port & 0x7 == 0) || (_port & (!0x7) != 0) {
+        // println!("Oops");
+        return -1;
+    }
+    let start_va = VirtAddr::from(_start);
+    let end_va = VirtAddr::from(_start + _len);
+    if !start_va.aligned() {
+        return -1;
+    }
+    let permission: MapPermission = MapPermission::from_bits((_port << 1) as u8).unwrap() | MapPermission::U;
+    // let ret = with_current_memory_set(|memory_set: &mut MemorySet| {
+        // memory_set.insert_framed_area_safely(start_va, end_va, permission)
+    // });
+    let current_task = current_task().unwrap();
+    let mut inner = current_task.inner_exclusive_access();
+    let ret = inner.memory_set.insert_framed_area_safely(start_va, end_va, permission);
+    drop(inner);
+    ret
 }
 
 /// YOUR JOB: Implement munmap.
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_munmap NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    trace!("kernel: sys_munmap");
+    let start_va = VirtAddr::from(_start);
+    let end_va = VirtAddr::from(_start + _len);
+    if !start_va.aligned() {
+        return -1;
+    }
+    let current_task = current_task().unwrap();
+    let mut inner = current_task.inner_exclusive_access();
+    let ret = inner.memory_set.delete_framed_area(start_va, end_va);
+    drop(inner);
+    ret
 }
 
 /// change data segment size
@@ -148,7 +178,18 @@ pub fn sys_spawn(_path: *const u8) -> isize {
         "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    let token = current_user_token();
+    let path = translated_str(token, _path);
+    let new_task: Arc<TaskControlBlock>; 
+    if let Some(elf_data) = get_app_data_by_name(path.as_str()) {
+        new_task = current_task().unwrap().spawn(elf_data);
+        let new_pid = new_task.pid.0;
+        add_task(new_task);
+        return new_pid as isize;
+    }
+    else {
+        return -1;
+    }
 }
 
 // YOUR JOB: Set task priority.
@@ -157,5 +198,15 @@ pub fn sys_set_priority(_prio: isize) -> isize {
         "kernel:pid[{}] sys_set_priority NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    let current_task = current_task().unwrap();
+    let mut inner = current_task.inner_exclusive_access();
+    if _prio >= 2 {
+        inner.task_priority.set_prio(_prio as usize);
+        drop(inner);
+        _prio
+    }
+    else {
+        -1
+    }
+
 }
