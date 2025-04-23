@@ -5,6 +5,7 @@ use crate::mm::{
     kernel_stack_position, MapPermission, MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE,
 };
 use crate::trap::{trap_handler, TrapContext};
+use crate::syscall::SyscallCount;
 
 /// The task control block (TCB) of a task.
 pub struct TaskControlBlock {
@@ -28,6 +29,9 @@ pub struct TaskControlBlock {
 
     /// Program break
     pub program_brk: usize,
+
+    /// Syscall called count
+    pub syscall_called: SyscallCount,
 }
 
 impl TaskControlBlock {
@@ -38,6 +42,14 @@ impl TaskControlBlock {
     /// get the user token
     pub fn get_user_token(&self) -> usize {
         self.memory_set.token()
+    }
+    /// get the memoryset
+    pub fn get_memory_set(&mut self) -> &mut MemorySet {
+        &mut self.memory_set
+    }
+    /// get the syscall called count
+    pub fn get_syscall_num(&mut self) -> &mut SyscallCount {
+        &mut self.syscall_called
     }
     /// Based on the elf info in program, build the contents of task in a new address space
     pub fn new(elf_data: &[u8], app_id: usize) -> Self {
@@ -63,6 +75,7 @@ impl TaskControlBlock {
             base_size: user_sp,
             heap_bottom: user_sp,
             program_brk: user_sp,
+            syscall_called: SyscallCount::new(),
         };
         // prepare TrapContext in user space
         let trap_cx = task_control_block.get_trap_cx();

@@ -15,7 +15,9 @@ mod switch;
 mod task;
 
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::MemorySet;
 use crate::sync::UPSafeCell;
+use crate::syscall::SyscallCount;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
 use lazy_static::*;
@@ -126,6 +128,27 @@ impl TaskManager {
         inner.tasks[inner.current_task].get_trap_cx()
     }
 
+    fn with_current_syscall_num<R>(&self, f: impl FnOnce(&mut SyscallCount) -> R) -> R{
+        let mut inner = self.inner.exclusive_access();
+        let current_task = inner.current_task;
+        let syscall_num = inner.tasks[current_task].get_syscall_num();
+        f(syscall_num)
+    }
+
+    // /// Get the current 'Running' task's token.
+    // fn get_current_memory_set(&self) -> &MemorySet {
+    //     let inner = self.inner.exclusive_access();
+    //     inner.tasks[inner.current_task].get_memory_set()
+    // }
+
+    /// Apply Function f to MemorySet
+    fn with_current_memory_set<R>(&self, f: impl FnOnce(&mut MemorySet) -> R) -> R {
+        let mut inner = self.inner.exclusive_access();
+        let current_task = inner.current_task;
+        let mem_set = inner.tasks[current_task].get_memory_set();
+        f(mem_set)
+    }
+
     /// Change the current 'Running' task's program break
     pub fn change_current_program_brk(&self, size: i32) -> Option<usize> {
         let mut inner = self.inner.exclusive_access();
@@ -196,6 +219,16 @@ pub fn current_user_token() -> usize {
 /// Get the current 'Running' task's trap contexts.
 pub fn current_trap_cx() -> &'static mut TrapContext {
     TASK_MANAGER.get_current_trap_cx()
+}
+
+/// Apply Function f to MemorySet
+pub fn with_current_memory_set<R>(f: impl FnOnce(&mut MemorySet) -> R) -> R {
+    TASK_MANAGER.with_current_memory_set(f)
+}
+
+/// Apply Function f to SyscallCount
+pub fn with_current_syscall_num<R>(f: impl FnOnce(&mut SyscallCount) -> R) -> R {
+    TASK_MANAGER.with_current_syscall_num(f)
 }
 
 /// Change the current 'Running' task's program break

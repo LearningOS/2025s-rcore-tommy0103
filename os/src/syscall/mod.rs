@@ -27,9 +27,11 @@ const SYSCALL_TRACE: usize = 410;
 
 mod fs;
 mod process;
+mod mm_utils;
 
 use fs::*;
 use process::*;
+pub use process::SyscallCount;
 
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {

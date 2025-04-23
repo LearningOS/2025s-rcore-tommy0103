@@ -133,6 +133,26 @@ impl PageTable {
         }
         result
     }
+    /// Find PageTableEntry by VirtPageNum And Check
+    fn find_pte_if_available(&self, vpn: VirtPageNum, flags: PTEFlags) -> Option<&mut PageTableEntry> {
+        let idxs = vpn.indexes();
+        let mut ppn = self.root_ppn;
+        let mut result: Option<&mut PageTableEntry> = None;
+        for (i, idx) in idxs.iter().enumerate() {
+            let pte = &mut ppn.get_pte_array()[*idx];
+            if i == 2 {
+                if pte.flags() & flags == flags {
+                    result = Some(pte);
+                }
+                break;
+            }
+            if !pte.is_valid() {
+                return None;
+            }
+            ppn = pte.ppn();
+        }
+        result
+    }
     /// set the map between virtual page number and physical page number
     #[allow(unused)]
     pub fn map(&mut self, vpn: VirtPageNum, ppn: PhysPageNum, flags: PTEFlags) {
@@ -150,6 +170,10 @@ impl PageTable {
     /// get the page table entry from the virtual page number
     pub fn translate(&self, vpn: VirtPageNum) -> Option<PageTableEntry> {
         self.find_pte(vpn).map(|pte| *pte)
+    }
+    /// get the page table entry from the virtual page number and check
+    pub fn translate_if_available(&self, vpn: VirtPageNum, flags: PTEFlags) -> Option<PageTableEntry> {
+        self.find_pte_if_available(vpn, flags).map(|pte| *pte)
     }
     /// get the token from the page table
     pub fn token(&self) -> usize {
