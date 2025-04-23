@@ -81,6 +81,81 @@ impl MemorySet {
     /// Add a new MapArea into this MemorySet.
     /// Assuming that there are no conflicts in the virtual address
     /// space.
+    /// Don't need to assume that no conflicts.
+    pub fn insert_framed_area_safely(
+        &mut self,
+        start_va: VirtAddr,
+        end_va: VirtAddr,
+        permission: MapPermission,
+    ) -> isize { 
+        if self.check_intersect(start_va, end_va).is_some() {
+            // println!("{:?} {:?} {:?} {:?}", area.vpn_range.get_start(), area.vpn_range.get_end(), start_va.floor(), end_va.ceil());
+            return -1;
+        }
+        else {
+            self.insert_framed_area(start_va, end_va, permission);
+            return 0;
+        }
+    }
+    /// Assume that no conflicts and aligned addresses
+    pub fn delete_framed_area(
+        &mut self,
+        start_va: VirtAddr,
+        end_va: VirtAddr,
+    ) -> isize {
+        // self.push(
+        //     MapArea::new(start_va, end_va, MapType::Framed, permission),
+        //     None,
+        // );
+        if self.check_intersect_identity(start_va, end_va) == -1 {
+            // println!("{:?} {:?} {:?} {:?}", start_va.floor(), end_va.ceil(), area.vpn_range.get_start(), area.vpn_range.get_end());
+            return -1;
+        }
+        if let Some(area) = self
+            .areas
+            .iter_mut()
+            .find(|area| area.vpn_range.get_start() == start_va.floor()) {
+            if area.vpn_range.get_end() != end_va.ceil() {
+                return -1;
+            }
+            else {
+                area.unmap(&mut self.page_table);
+                self.areas.retain(|area| area.vpn_range.get_start() != start_va.floor());
+                return 0;
+            }
+        } else {
+            -1
+        }
+    }
+    /// Check Intersect
+    fn check_intersect(&self, start_va: VirtAddr, end_va: VirtAddr) -> Option<&MapArea> {
+        if let Some(area) = self
+            .areas
+            .iter()
+            .find(|area| {
+               !(area.vpn_range.get_end() <= start_va.floor() || area.vpn_range.get_start() >= end_va.ceil()) 
+            }) {
+            // println!("{:?} {:?} {:?} {:?}", area.vpn_range.get_start(), area.vpn_range.get_end(), start_va.floor(), end_va.ceil());
+            Some(area)
+        }
+        else {            
+            None
+        }
+    }
+    /// Check Intersect
+    fn check_intersect_identity(&self, start_va: VirtAddr, end_va: VirtAddr) -> isize {
+        if let Some(area) = self.check_intersect(start_va, end_va) {
+            if !(area.vpn_range.get_start() == start_va.floor() && area.vpn_range.get_end() == end_va.ceil()) {
+                -1
+            }
+            else {
+                0
+            }
+        }
+        else {
+            0
+        }
+    }
     fn push(&mut self, mut map_area: MapArea, data: Option<&[u8]>) {
         map_area.map(&mut self.page_table);
         if let Some(data) = data {

@@ -25,7 +25,7 @@ pub struct OSInode {
 /// The OS inode inner in 'UPSafeCell'
 pub struct OSInodeInner {
     offset: usize,
-    inode: Arc<Inode>,
+    inode: Arc<Inode>
 }
 
 impl OSInode {
@@ -34,7 +34,10 @@ impl OSInode {
         Self {
             readable,
             writable,
-            inner: unsafe { UPSafeCell::new(OSInodeInner { offset: 0, inode }) },
+            inner: unsafe {UPSafeCell::new(OSInodeInner {
+                 offset: 0, 
+                 inode
+            })},
         }
     }
     /// read all data from the inode
@@ -125,6 +128,42 @@ pub fn open_file(name: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
     }
 }
 
+/// Linkat a file
+pub fn linkat(old_path: &str, new_path: &str) -> isize {
+    if let Some(inode_mut) = ROOT_INODE.find_mut(old_path) {
+        let mut inode = inode_mut.lock();
+        let inode_id = inode.get_inode_id();
+        ROOT_INODE.linkat(new_path, inode_id);
+        inode.change_nlink(1);
+        inode_id as isize
+    }
+    else {
+        -1
+    }
+}
+
+/// Unlinkat a file
+pub fn unlinkat(path: &str) -> isize {
+    if let Some(inode_mut) = ROOT_INODE.find_mut(path) {
+        if let Some(reserved) = ROOT_INODE.unlinkat(path) {
+            let mut inode = inode_mut.lock();
+            if !reserved {
+                inode.clear();
+            }
+            else {
+                inode.change_nlink(-1);
+            }
+            inode.get_inode_id() as isize
+        }
+        else {
+            -1
+        }
+    }
+    else {
+        -1
+    }
+}
+
 impl File for OSInode {
     fn readable(&self) -> bool {
         self.readable
@@ -156,4 +195,24 @@ impl File for OSInode {
         }
         total_write_size
     }
+    fn get_inode_id(&self) -> u64 {
+        let inner = self.inner.exclusive_access();
+        inner.inode.get_inode_id() as u64
+    }
+    fn get_fstat(&self) -> (bool, u32) {
+        let inner = self.inner.exclusive_access();
+        let file_type = inner.inode.get_inode_type();
+        let nlink = inner.inode.get_nlink();
+        (file_type, nlink)
+    }
+    // fn decrease_nlink(&mut self) {
+    //     let mut inner = self.inner.exclusive_access();
+    //     if inner.nlink > 0 {
+    //         inner.nlink -= 1;
+    //     }
+    // }
+    // fn increase_nlink(&mut self) {
+    //     let mut inner = self.inner.exclusive_access();
+    //     inner.nlink += 1;
+    // }
 }

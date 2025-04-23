@@ -1,3 +1,7 @@
+use core::iter::empty;
+
+use crate::BLOCK_SZ;
+
 use super::{
     block_cache_sync_all, get_block_cache, BlockDevice, DirEntry, DiskInode, DiskInodeType,
     EasyFileSystem, DIRENT_SZ,
@@ -58,6 +62,39 @@ impl Inode {
         }
         None
     }
+    fn check_inode_reserved(&self, id: u32, disk_inode: &DiskInode) -> bool {
+        assert!(disk_inode.is_dir());
+        let file_count = (disk_inode.size as usize) / DIRENT_SZ;
+        let mut dirent = DirEntry::empty();
+        for i in 0..file_count {
+            assert_eq!(
+                disk_inode.read_at(DIRENT_SZ * i, dirent.as_bytes_mut(), &self.block_device,),
+                DIRENT_SZ,
+            );
+            if dirent.inode_id() == id {
+                return true;
+            }
+        }
+        false
+    }
+    fn remove_inode(&self, name: &str, disk_inode: &mut DiskInode) -> Option<u32> {
+        assert!(disk_inode.is_dir());
+        let file_count = (disk_inode.size as usize) / DIRENT_SZ;
+        let mut dirent = DirEntry::empty();
+        for i in 0..file_count {
+            assert_eq!(
+                disk_inode.read_at(DIRENT_SZ * i, dirent.as_bytes_mut(), &self.block_device,),
+                DIRENT_SZ,
+            );
+            if dirent.name() == name {
+                let result = Some(dirent.inode_id() as u32);
+                dirent = DirEntry::empty();
+                disk_inode.write_at(DIRENT_SZ * i, dirent.as_bytes(), &self.block_device);
+                return result
+            }
+        }
+        None
+    }
     /// Find inode under current inode by name
     pub fn find(&self, name: &str) -> Option<Arc<Inode>> {
         let fs = self.fs.lock();
@@ -70,6 +107,21 @@ impl Inode {
                     self.fs.clone(),
                     self.block_device.clone(),
                 ))
+            })
+        })
+    }
+    /// Find mut inode under current inode by name
+    pub fn find_mut(&self, name: &str) -> Option<Arc<Mutex<Inode>>> {
+        let fs = self.fs.lock();
+        self.read_disk_inode(|disk_inode| {
+            self.find_inode_id(name, disk_inode).map(|inode_id| {
+                let (block_id, block_offset) = fs.get_disk_inode_pos(inode_id);
+                Arc::new(Mutex::new(Self::new(
+                    block_id,
+                    block_offset,
+                    self.fs.clone(),
+                    self.block_device.clone(),
+                )))
             })
         })
     }
@@ -89,6 +141,77 @@ impl Inode {
             v.push(fs.alloc_data());
         }
         disk_inode.increase_size(new_size, v, &self.block_device);
+    }
+
+    /// get inode id
+    pub fn get_inode_id(&self) -> u32 {
+        let fs = self.fs.lock();
+        fs.get_disk_inode_id(self.block_id as u32, self.block_offset)
+    }
+    
+    /// get inode type
+    pub fn get_inode_type(&self) -> bool {
+        self.read_disk_inode(|disk_inode| {
+            disk_inode.is_file()
+        })
+    }
+
+    /// linkat: hard link, only can be used by root inode.
+    pub fn linkat(&self, name: &str, inode_id: u32) {
+        let mut fs = self.fs.lock();
+        
+        self.modify_disk_inode(|root_inode| {
+            let file_count = (root_inode.size as usize) / DIRENT_SZ;
+            let new_size = (file_count + 1) * DIRENT_SZ;
+            self.increase_size(new_size as u32, root_inode, &mut fs);
+            let dirent = DirEntry::new(name, inode_id);
+            root_inode.write_at(
+                file_count * DIRENT_SZ,
+                dirent.as_bytes(),
+                &self.block_device,                  
+            );
+        });
+    }
+
+    /// get nlink in DiskInode
+    pub fn get_nlink(&self) -> u32 {
+        self.read_disk_inode(|disk_inode| {
+            disk_inode.nlink
+        })
+    } 
+    /// change nlink in DiskInode with +1/-1 
+    /// I think it's not safety, but it should work in small scale.
+    pub fn change_nlink(&mut self, value: i32) {
+        self.modify_disk_inode(|disk_inode| {
+            disk_inode.nlink = (disk_inode.nlink as i32 + value) as u32; 
+        })
+    }
+ 
+    // /// change nlink
+    // pub fn get_nlink(&self) -> Arc<u64> {
+    //     self.nlink.clone()
+    // }
+    // /// change nlink
+    // pub fn change_nlink(&mut self, value: i64) -> Arc<u64> {
+    //     let new_nlink = (*self.nlink as i64 + value) as u64;
+    //     self.nlink = Arc::new(new_nlink);
+    //     self.nlink.clone()
+    // }
+
+    /// Unlinkat: hard link, only can be used by root inode
+    pub fn unlinkat(&self, name: &str) -> Option<bool> {
+        // let mut fs = self.fs.lock();
+
+        let ret = self.modify_disk_inode(|root_inode| {
+            if let Some(inode_id) = self.remove_inode(name, root_inode) {
+                Some(self.check_inode_reserved(inode_id, root_inode))
+            }
+            else {
+                None
+            }
+        });
+        
+        ret
     }
     /// Create inode under current inode by name
     pub fn create(&self, name: &str) -> Option<Arc<Inode>> {
