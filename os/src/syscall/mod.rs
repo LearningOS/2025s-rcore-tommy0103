@@ -103,6 +103,7 @@ mod fs;
 mod process;
 mod sync;
 mod thread;
+mod mm_utils;
 
 use fs::*;
 use process::*;
