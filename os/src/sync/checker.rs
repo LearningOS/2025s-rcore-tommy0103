@@ -143,4 +143,80 @@ impl DeadlockChecker {
         inner.available[lid] += 1;
         inner.allocation[tid][lid] -= 1;
     }
+
+    /// consume resources
+    pub fn semaphore(&self, lid: usize) {
+        let mut inner = self.inner.exclusive_access();
+        inner.available[lid] -= 1;
+    }
+    
+    /// recycle resources
+    pub fn unsemaphore(&self, tid: usize, lid: usize) {
+        let mut inner = self.inner.exclusive_access();
+        inner.need[tid][lid] -= 1;
+    }
+
+    /// only when you can acquire this lock
+    pub fn try_semaphore(&self, tid: usize, lid: usize) -> bool {
+        if self.checked == false {
+            return true;
+        }
+
+        let mut inner = self.inner.exclusive_access();
+        let task_count = inner.allocation.len();
+        let lock_count = inner.available.len();
+
+        inner.need[tid][lid] += 1;
+
+        inner.available[lid] -= 1;
+        inner.need[tid][lid] -= 1; 
+
+        let work: Vec<isize> = inner.available.clone();
+        let mut finish: Vec<bool> = vec![false; inner.allocation.len()];
+        
+        let mut founded: bool = true;
+        while founded {
+            founded = false;
+            for i in 0..task_count {
+                if finish[i] == true {
+                    continue;
+                }
+                let mut can_completed: bool = true;
+                for j in 0..lock_count {
+                    if inner.need[i][j] > work[j] {
+                        can_completed = false;
+                        break;
+                    }
+                }
+                if can_completed == true {
+                    finish[i] = true;
+                    founded = true;
+                    break;
+                }
+            }
+        }
+        
+        let mut ret = true;
+        for i in 0..finish.len() {
+            if finish[i] == false {
+                ret = false;
+                break;
+            }
+        }
+
+        inner.available[lid] += 1;
+        inner.need[tid][lid] += 1; 
+        
+        if ret == false {
+            inner.need[tid][lid] -= 1;
+        }
+
+        ret
+    }
+
+    /// more resources
+    pub fn more_capacity(&self, lid: usize) {
+        let mut inner = self.inner.exclusive_access();
+        inner.available[lid] += 1;
+    }
 }

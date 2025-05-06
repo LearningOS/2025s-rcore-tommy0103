@@ -1,7 +1,7 @@
 //! Semaphore
 
 use crate::sync::UPSafeCell;
-use crate::task::{block_current_and_run_next, current_task, wakeup_task, TaskControlBlock};
+use crate::task::{block_current_and_run_next, current_process, current_task, wakeup_task, TaskControlBlock};
 use alloc::{collections::VecDeque, sync::Arc};
 
 /// semaphore structure
@@ -42,14 +42,17 @@ impl Semaphore {
     }
 
     /// down operation of semaphore
-    pub fn down(&self) {
+    pub fn down(&self, _tid: usize, sem_id: usize) {
         trace!("kernel: Semaphore::down");
         let mut inner = self.inner.exclusive_access();
         inner.count -= 1;
+        current_process().inner_exclusive_access().semaphore_checker.semaphore(sem_id);
         if inner.count < 0 {
             inner.wait_queue.push_back(current_task().unwrap());
             drop(inner);
             block_current_and_run_next();
         }
+
+        // current_process().inner_exclusive_access().semaphore_checker.unsemaphore( tid, sem_id);
     }
 }
